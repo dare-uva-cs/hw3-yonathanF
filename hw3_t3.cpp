@@ -26,9 +26,8 @@ using namespace ento;
 // create a state specifier
 struct ProgramPairState {
 public:
-  int Lock;
-  int MyMalloc;
-
+  Proga 
+   
   ProgramPairState(int lock, int myMalloc) : Lock(lock), MyMalloc(myMalloc) {}
   bool operator==(const ProgramPairState &X) const {
     return Lock == X.Lock && MyMalloc == X.MyMalloc;

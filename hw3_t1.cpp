@@ -84,7 +84,7 @@ const clang::Decl *get_DeclContext_from_Stmt(const clang::Stmt &stmt,
     return nullptr;
 
   const clang::Decl *aDecl = it->get<clang::Decl>();
-  if (aDecl)
+  if (aDecl && isa<FunctionDecl>(aDecl))
     return aDecl;
 
   const clang::Stmt *aStmt = it->get<clang::Stmt>();
@@ -109,16 +109,18 @@ public:
     myfile << "digraph unnamed {\n";
 
     for (unsigned exprid = 0; exprid < callexprvector.size(); exprid++) {
-      auto callee = callexprvector[exprid]; //*stmt
-      auto caller =
-          get_DeclContext_from_Stmt(*callexprvector[exprid], Context); //*decl
+      const CallExpr *callee =
+          dyn_cast<CallExpr>(callexprvector[exprid]); //*stmt
+      const FunctionDecl *caller = dyn_cast<FunctionDecl>(
+          get_DeclContext_from_Stmt(*callexprvector[exprid], Context)); //*decl
 
-      myfile << "function" << caller << "[shape=record,label=\"fun" << caller
-             << "\"];\n";
-      myfile << "function" << callee << "[shape=record,label=\"fun" << callee
-             << "\"];\n";
+      string callerStr = caller->getNameInfo().getAsString();
+      string calleeStr = callee->getDirectCallee()->getNameInfo().getAsString();
 
-      myfile << "function" << caller << " -> function" << callee << ";\n";
+      myfile << callerStr << "[shape=record,label=\"" << callerStr << "\"];\n";
+      myfile << calleeStr << "[shape=record,label=\"" << calleeStr << "\"];\n";
+
+      myfile << callerStr << " -> " << calleeStr << ";\n";
     }
     /*
         myfile << "Node1 [shape=record,label=\"{ [(ENTRY)]\\l}\"];\n";
