@@ -33,41 +33,9 @@ vector<ForStmt *> forstmtvector;
 std::map<FunctionDecl, vector<FunctionDecl>> functionDecl;
 vector<Stmt *> stmtvector;
 vector<FunctionDecl> functiondeclvector;
-vector<CallExpr *> callexprvector;
+vector<Stmt *> callexprvector;
 
 static llvm::cl::OptionCategory ToolingSampleCategory("Tooling Sample");
-
-// get the source code of the specific parts of AST
-template <typename T>
-static std::string getText(const SourceManager &SourceManager, const T &Node) {
-  SourceLocation StartSpellingLocation =
-      SourceManager.getSpellingLoc(Node.getLocStart());
-  SourceLocation EndSpellingLocation =
-      SourceManager.getSpellingLoc(Node.getLocEnd());
-  if (!StartSpellingLocation.isValid() || !EndSpellingLocation.isValid()) {
-    return std::string();
-  }
-  bool Invalid = true;
-  const char *Text =
-      SourceManager.getCharacterData(StartSpellingLocation, &Invalid);
-  if (Invalid) {
-    return std::string();
-  }
-  std::pair<FileID, unsigned> Start =
-      SourceManager.getDecomposedLoc(StartSpellingLocation);
-  std::pair<FileID, unsigned> End =
-      SourceManager.getDecomposedLoc(Lexer::getLocForEndOfToken(
-          EndSpellingLocation, 0, SourceManager, LangOptions()));
-  if (Start.first != End.first) {
-    // Start and end are in different files.
-    return std::string();
-  }
-  if (End.second < Start.second) {
-    // Shuffling text with macros may cause this.
-    return std::string();
-  }
-  return std::string(Text, End.second - Start.second);
-}
 
 // By implementing RecursiveASTVisitor, we can specify which AST nodes
 // we're interested in by overriding relevant methods.
@@ -78,7 +46,7 @@ public:
   bool VisitStmt(Stmt *st) {
     // Only function definitions (with bodies), not declarations.
     if (CallExpr *call = dyn_cast<CallExpr>(st)) {
-      callexprvector.push_back(call);
+      callexprvector.push_back(st);
     }
     return true;
   }
@@ -108,10 +76,11 @@ private:
   MyASTVisitor Visitor;
 };
 
-const clang::Decl *get_DeclContext_from_Stmt(const clang::Stmt &stmt) {
-  auto it = ASTContext->getParents(stmt).begin();
+const clang::Decl *get_DeclContext_from_Stmt(const clang::Stmt &stmt,
+                                             ASTContext *context) {
+  auto it = context->getParents(stmt).begin();
 
-  if (it == ASTContext->getParents(stmt).end())
+  if (it == context->getParents(stmt).end())
     return nullptr;
 
   const clang::Decl *aDecl = it->get<clang::Decl>();
@@ -120,7 +89,7 @@ const clang::Decl *get_DeclContext_from_Stmt(const clang::Stmt &stmt) {
 
   const clang::Stmt *aStmt = it->get<clang::Stmt>();
   if (aStmt)
-    return get_DeclContext_from_Stmt(*aStmt);
+    return get_DeclContext_from_Stmt(*aStmt, context);
 
   return nullptr;
 }
@@ -134,41 +103,31 @@ public:
     llvm::errs() << "** EndSourceFileAction for: "
                  << SM.getFileEntryForID(SM.getMainFileID())->getName() << "\n";
 
-    // handle each function definition
+    ofstream myfile;
+    myfile.open("call_graph.dot");
+    cout << ("call_graph.dot") << endl;
+    myfile << "digraph unnamed {\n";
+
     for (unsigned exprid = 0; exprid < callexprvector.size(); exprid++) {
-      ofstream myfile;
-      myfile.open("call_graph.dot");
-      cout << ("call_graph.dot") << endl;
-      myfile << "digraph unnamed {\n";
+      auto callee = callexprvector[exprid]; //*stmt
+      auto caller =
+          get_DeclContext_from_Stmt(*callexprvector[exprid], Context); //*decl
 
-      while (true) {
-        // get parents
-        const auto &parents = Context->getParents(*callexprvector[exprid]);
-        if (parents.empty()) {
-          llvm::errs() << "Can not find parent\n";
-        }
-        llvm::errs() << "find parent size=" << parents.size() << "\n";
+      myfile << "function" << caller << "[shape=record,label=\"fun" << caller
+             << "\"];\n";
+      myfile << "function" << callee << "[shape=record,label=\"fun" << callee
+             << "\"];\n";
 
-        for (int j = 0; j < parents.size(); j++) {
-          const Stmt *ST = parents[j].get<Stmt>();
-
-          //	if (FunctionDecl *decl= dyn_cast<FunctionDec>(st)) {
-
-          if (ISA(FunctionDecl, ST)) {
-          }
-          // const clang::Decl *aDecl = parents->get<clang::Decl>();
-          //	  if(aDecl)
-        }
-      }
-
-      myfile << "Node1 [shape=record,label=\"{ [(ENTRY)]\\l}\"];\n";
-
-      myfile << "Node2 [shape=record,label=\"Dummy Node\"]\n";
-      myfile << "Node1 -> Node2;\n";
-
-      myfile << "}\n";
-      myfile.close();
+      myfile << "function" << caller << " -> function" << callee << ";\n";
     }
+    /*
+        myfile << "Node1 [shape=record,label=\"{ [(ENTRY)]\\l}\"];\n";
+
+        myfile << "Node2 [shape=record,label=\"Dummy Node\"]\n";
+        myfile << "Node1 -> Node2;\n";
+    */
+    myfile << "}\n";
+    myfile.close();
   }
 
   std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,

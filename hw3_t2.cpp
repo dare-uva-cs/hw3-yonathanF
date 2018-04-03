@@ -61,6 +61,10 @@ void PairFunctionChecker::checkPreCall(const CallEvent &Call,
   // current state
   ProgramPairState myState = state->get<PairMap>(caller);
 
+  if (myState == NULL) {
+    myState = state->set<PairMap>(caller, ProgramPairState(0, 0));
+  }
+
   if (Call.isCalled("lock")) {
     state = state->set<PairMap>(
         caller, ProgramPairState(++myState.Lock, myState.MyMalloc));
@@ -99,28 +103,49 @@ void CallDumper::checkPostCall(const CallEvent &Call, CheckerContext &C) const {
 
   ProgramPairState myState = state->get<PairMap>(caller);
 
+  if (myState == NULL) {
+    myState = state->set<PairMap>(caller, ProgramPairState(0, 0));
+  }
   if (Call.isCalled("lock")) {
     if (state->get<PairMap>(caller).Lock != 0)
       llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
                    << ": False";
+    else {
+      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
+                   << ": True";
+    }
   }
 
   if (Call.isCalled("unlock")) {
     if (state->get<PairMap>(caller).Lock != 0)
       llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
                    << ": False";
+    else {
+      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
+                   << ": True";
+    }
   }
 
   if (Call.isCalled("mymalloc")) {
     if (state->get<PairMap>(caller).MyMalloc != 0)
       llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
                    << ": False";
+
+    else {
+      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
+                   << ": True";
+    }
   }
 
   if (Call.isCalled("myfree")) {
     if (state->get<PairMap>(caller).MyMalloc != 0)
       llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
                    << ": False";
+
+    else {
+      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
+                   << ": True";
+    }
   }
   C.addTransition(state);
 }
