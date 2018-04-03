@@ -20,135 +20,81 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <vector>
+
 using namespace clang;
 using namespace ento;
+using namespace std;
+
+int pathCounter = 0;
+const Decl *mainFun = NULL;
 
 // create a state specifier
-struct ProgramPairState {
+struct PathState {
 public:
-  Proga 
-   
-  ProgramPairState(int lock, int myMalloc) : Lock(lock), MyMalloc(myMalloc) {}
-  bool operator==(const ProgramPairState &X) const {
-    return Lock == X.Lock && MyMalloc == X.MyMalloc;
-  }
+  vector<const Decl *> vect;
+  PathState(vector<const Decl *> Vect) : vect(Vect) {}
 
-  void Profile(llvm::FoldingSetNodeID &ID) const {
-    ID.AddInteger(Lock);
-    ID.AddInteger(MyMalloc);
-  }
+  bool operator==(const PathState &X) const { return vect == X.vect; }
+
+  void Profile(llvm::FoldingSetNodeID &ID) const { ID.AddInteger(vect.size()); }
 };
 
 namespace {
-class PairFunctionChecker : public Checker<check::PreCall, check::PostCall> {
+class PathChecker : public Checker<check::PreCall, check::PostCall> {
 public:
-  PairFunctionChecker();
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
-  void checkPostCall(const CallEvent &Call, CheckerContext &C) const;
+  void checkPostCall(const CallEvent &Call, CheckerContext &C) const {}
+  void checkPreStmt(const ReturnStmt *S, CheckerContext &C) const;
 };
 } // namespace
 
-REGISTER_MAP_WITH_PROGRAMSTATE(PairMap, Decl *, ProgramPairState)
+REGISTER_MAP_WITH_PROGRAMSTATE(PairMap, const Decl *, PathState)
 
-void PairFunctionChecker::checkPreCall(const CallEvent &Call,
-                                       CheckerContext &C) const {
+void PathChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
 
-  ProgramStateRef State = C.getState();
+  ProgramStateRef state = C.getState();
   auto caller = C.getCurrentAnalysisDeclContext()->getDecl();
   auto callee = Call.getDecl();
+
+  if (caller->getAsFunction()->getNameInfo().getAsString().compare("main")) {
+    mainFun = caller;
+    vector<const Decl *> vec;
+    state->set<PairMap>(mainFun, PathState(vec));
+  }
+
+  else {
+    const PathState *myState = state->get<PairMap>(mainFun);
+    vector<const Decl *> vectTemp = myState->vect;
+    vectTemp.push_back(callee);
+    state->set<PairMap>(mainFun, PathState(vectTemp));
+  }
+
+  C.addTransition(state);
+}
+void PathChecker::checkPreStmt(const ReturnStmt *S, CheckerContext &C) const {
+  ProgramStateRef state = C.getState();
+  auto caller = C.getCurrentAnalysisDeclContext()->getDecl();
 
   // current state
-  ProgramPairState myState = state->get<PairMap>(caller);
+  const PathState *myState = state->get<PairMap>(mainFun);
 
   if (myState == NULL) {
-    myState = state->set<PairMap>(caller, ProgramPairState(0, 0));
+    return;
   }
 
-  if (Call.isCalled("lock")) {
-    state = state->set<PairMap>(
-        caller, ProgramPairState(++myState.Lock, myState.MyMalloc));
+  if (caller->getAsFunction()->getNameInfo().getAsString().compare("main")) {
+    auto vect = myState->vect;
+
+    llvm::outs() << "P" << pathCounter << ": ";
+    for (int i = 0; i < vect.size(); i++)
+      llvm::outs() << vect[i]->getAsFunction()->getNameInfo().getAsString()
+                   << " ";
+
+    pathCounter++;
+    llvm::outs() << "\n";
   }
-
-  if (Call.isCalled("unlock")) {
-    state = state->set<PairMap>(
-        caller, ProgramPairState(--myState.Lock, myState.MyMalloc));
-    if (state->get<PairMap>(caller).Lock < 0)
-      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
-                   << ": False";
-  }
-
-  if (Call.isCalled("mymalloc")) {
-    state = state->set<PairMap>(
-        caller, ProgramPairState(myState.Lock, ++myState.MyMalloc));
-  }
-
-  if (Call.isCalled("myfree")) {
-    state = state->set<PairMap>(
-        caller, ProgramPairState(myState.Lock, --myState.MyMalloc));
-
-    if (state->get<PairMap>(caller).MyMalloc < 0)
-      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
-                   << ": False";
-  }
-
-  C.addTransition(state);
 }
-
-void CallDumper::checkPostCall(const CallEvent &Call, CheckerContext &C) const {
-
-  ProgramStateRef State = C.getState();
-  auto caller = C.getCurrentAnalysisDeclContext()->getDecl();
-  auto callee = Call.getDecl();
-
-  ProgramPairState myState = state->get<PairMap>(caller);
-
-  if (myState == NULL) {
-    myState = state->set<PairMap>(caller, ProgramPairState(0, 0));
-  }
-  if (Call.isCalled("lock")) {
-    if (state->get<PairMap>(caller).Lock != 0)
-      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
-                   << ": False";
-    else {
-      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
-                   << ": True";
-    }
-  }
-
-  if (Call.isCalled("unlock")) {
-    if (state->get<PairMap>(caller).Lock != 0)
-      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
-                   << ": False";
-    else {
-      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
-                   << ": True";
-    }
-  }
-
-  if (Call.isCalled("mymalloc")) {
-    if (state->get<PairMap>(caller).MyMalloc != 0)
-      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
-                   << ": False";
-
-    else {
-      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
-                   << ": True";
-    }
-  }
-
-  if (Call.isCalled("myfree")) {
-    if (state->get<PairMap>(caller).MyMalloc != 0)
-      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
-                   << ": False";
-
-    else {
-      llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
-                   << ": True";
-    }
-  }
-  C.addTransition(state);
-}
-
-void ento::registerCallDumper(CheckerManager &mgr) {
-  mgr.registerChecker<CallDumper>();
+void ento::registerPathChecker(CheckerManager &mgr) {
+  mgr.registerChecker<PathChecker>();
 }

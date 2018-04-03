@@ -43,51 +43,52 @@ public:
 namespace {
 class PairFunctionChecker : public Checker<check::PreCall, check::PostCall> {
 public:
-  PairFunctionChecker();
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
   void checkPostCall(const CallEvent &Call, CheckerContext &C) const;
 };
 } // namespace
 
-REGISTER_MAP_WITH_PROGRAMSTATE(PairMap, Decl *, ProgramPairState)
+REGISTER_MAP_WITH_PROGRAMSTATE(PairMap, const Decl *, ProgramPairState)
 
 void PairFunctionChecker::checkPreCall(const CallEvent &Call,
                                        CheckerContext &C) const {
 
-  ProgramStateRef State = C.getState();
+  ProgramStateRef state = C.getState();
   auto caller = C.getCurrentAnalysisDeclContext()->getDecl();
   auto callee = Call.getDecl();
 
   // current state
-  ProgramPairState myState = state->get<PairMap>(caller);
+  const ProgramPairState *myState = state->get<PairMap>(caller);
 
   if (myState == NULL) {
-    myState = state->set<PairMap>(caller, ProgramPairState(0, 0));
+    state->set<PairMap>(caller, ProgramPairState(0, 0));
+    myState = state->get<PairMap>(caller);
   }
 
-  if (Call.isCalled("lock")) {
+  if (Call.isGlobalCFunction("lock")) {
     state = state->set<PairMap>(
-        caller, ProgramPairState(++myState.Lock, myState.MyMalloc));
+        caller, ProgramPairState(myState->Lock + 1, myState->MyMalloc));
   }
 
-  if (Call.isCalled("unlock")) {
+  if (Call.isGlobalCFunction("unlock")) {
     state = state->set<PairMap>(
-        caller, ProgramPairState(--myState.Lock, myState.MyMalloc));
-    if (state->get<PairMap>(caller).Lock < 0)
+        caller, ProgramPairState(myState->Lock - 1, myState->MyMalloc));
+
+    if (state->get<PairMap>(caller)->Lock < 0)
       llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
                    << ": False";
   }
 
-  if (Call.isCalled("mymalloc")) {
+  if (Call.isGlobalCFunction("mymalloc")) {
     state = state->set<PairMap>(
-        caller, ProgramPairState(myState.Lock, ++myState.MyMalloc));
+        caller, ProgramPairState(myState->Lock, 1 + myState->MyMalloc));
   }
 
-  if (Call.isCalled("myfree")) {
+  if (Call.isGlobalCFunction("myfree")) {
     state = state->set<PairMap>(
-        caller, ProgramPairState(myState.Lock, --myState.MyMalloc));
+        caller, ProgramPairState(myState->Lock, myState->MyMalloc - 1));
 
-    if (state->get<PairMap>(caller).MyMalloc < 0)
+    if (state->get<PairMap>(caller)->MyMalloc < 0)
       llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
                    << ": False";
   }
@@ -95,19 +96,22 @@ void PairFunctionChecker::checkPreCall(const CallEvent &Call,
   C.addTransition(state);
 }
 
-void CallDumper::checkPostCall(const CallEvent &Call, CheckerContext &C) const {
+void PairFunctionChecker::checkPostCall(const CallEvent &Call,
+                                        CheckerContext &C) const {
 
-  ProgramStateRef State = C.getState();
-  auto caller = C.getCurrentAnalysisDeclContext()->getDecl();
+  ProgramStateRef state = C.getState();
+  const Decl *caller = C.getCurrentAnalysisDeclContext()->getDecl();
   auto callee = Call.getDecl();
 
-  ProgramPairState myState = state->get<PairMap>(caller);
+  const ProgramPairState *myState = state->get<PairMap>(caller);
 
   if (myState == NULL) {
-    myState = state->set<PairMap>(caller, ProgramPairState(0, 0));
+    state->set<PairMap>(caller, ProgramPairState(0, 0));
+    C.addTransition(state);
+    myState = state->get<PairMap>(caller);
   }
-  if (Call.isCalled("lock")) {
-    if (state->get<PairMap>(caller).Lock != 0)
+  if (Call.isGlobalCFunction("lock")) {
+    if (state->get<PairMap>(caller)->Lock != 0)
       llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
                    << ": False";
     else {
@@ -116,8 +120,8 @@ void CallDumper::checkPostCall(const CallEvent &Call, CheckerContext &C) const {
     }
   }
 
-  if (Call.isCalled("unlock")) {
-    if (state->get<PairMap>(caller).Lock != 0)
+  if (Call.isGlobalCFunction("unlock")) {
+    if (state->get<PairMap>(caller)->Lock != 0)
       llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
                    << ": False";
     else {
@@ -126,8 +130,8 @@ void CallDumper::checkPostCall(const CallEvent &Call, CheckerContext &C) const {
     }
   }
 
-  if (Call.isCalled("mymalloc")) {
-    if (state->get<PairMap>(caller).MyMalloc != 0)
+  if (Call.isGlobalCFunction("mymalloc")) {
+    if (state->get<PairMap>(caller)->MyMalloc != 0)
       llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
                    << ": False";
 
@@ -137,8 +141,8 @@ void CallDumper::checkPostCall(const CallEvent &Call, CheckerContext &C) const {
     }
   }
 
-  if (Call.isCalled("myfree")) {
-    if (state->get<PairMap>(caller).MyMalloc != 0)
+  if (Call.isGlobalCFunction("myfree")) {
+    if (state->get<PairMap>(caller)->MyMalloc != 0)
       llvm::outs() << caller->getAsFunction()->getNameInfo().getAsString()
                    << ": False";
 
@@ -150,6 +154,6 @@ void CallDumper::checkPostCall(const CallEvent &Call, CheckerContext &C) const {
   C.addTransition(state);
 }
 
-void ento::registerCallDumper(CheckerManager &mgr) {
-  mgr.registerChecker<CallDumper>();
+void ento::registerPairFunctionChecker(CheckerManager &mgr) {
+  mgr.registerChecker<PairFunctionChecker>();
 }
