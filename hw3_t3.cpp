@@ -40,16 +40,16 @@ public:
   void Profile(llvm::FoldingSetNodeID &ID) const { ID.AddInteger(vect.size()); }
 };
 
-namespace {
 class PathChecker : public Checker<check::PreCall, check::PostCall> {
 public:
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
-  void checkPostCall(const CallEvent &Call, CheckerContext &C) const {}
+  void checkPostCall(const CallEvent &Call, CheckerContext &C) const;
   void checkPreStmt(const ReturnStmt *S, CheckerContext &C) const;
 };
-} // namespace
 
 REGISTER_MAP_WITH_PROGRAMSTATE(PairMap, const Decl *, PathState)
+void PathChecker::checkPostCall(const CallEvent &Call,
+                                CheckerContext &C) const {}
 
 void PathChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
 
@@ -57,7 +57,8 @@ void PathChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
   auto caller = C.getCurrentAnalysisDeclContext()->getDecl();
   auto callee = Call.getDecl();
 
-  if (caller->getAsFunction()->getNameInfo().getAsString().compare("main")) {
+  if (caller->getAsFunction()->getNameInfo().getAsString().compare("main") ==
+      0) {
     mainFun = caller;
     vector<const Decl *> vec;
     state->set<PairMap>(mainFun, PathState(vec));
@@ -83,7 +84,8 @@ void PathChecker::checkPreStmt(const ReturnStmt *S, CheckerContext &C) const {
     return;
   }
 
-  if (caller->getAsFunction()->getNameInfo().getAsString().compare("main")) {
+  if (caller->getAsFunction()->getNameInfo().getAsString().compare("main") ==
+      0) {
     auto vect = myState->vect;
 
     llvm::outs() << "P" << pathCounter << ": ";

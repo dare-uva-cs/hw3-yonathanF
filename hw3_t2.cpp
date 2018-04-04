@@ -40,13 +40,11 @@ public:
   }
 };
 
-namespace {
 class PairFunctionChecker : public Checker<check::PreCall, check::PostCall> {
 public:
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
   void checkPostCall(const CallEvent &Call, CheckerContext &C) const;
 };
-} // namespace
 
 REGISTER_MAP_WITH_PROGRAMSTATE(PairMap, const Decl *, ProgramPairState)
 
@@ -61,8 +59,11 @@ void PairFunctionChecker::checkPreCall(const CallEvent &Call,
   const ProgramPairState *myState = state->get<PairMap>(caller);
 
   if (myState == NULL) {
-    state->set<PairMap>(caller, ProgramPairState(0, 0));
-    myState = state->get<PairMap>(caller);
+    ProgramPairState emptyState(0, 0);
+    state = state->set<PairMap>(caller, emptyState);
+    // myState = &emptyState; // this line fixes the null ptr problem
+    // by forcing the state to have a value however, the state will obviously be
+    // lost
   }
 
   if (Call.isGlobalCFunction("lock")) {
@@ -109,6 +110,9 @@ void PairFunctionChecker::checkPostCall(const CallEvent &Call,
     state->set<PairMap>(caller, ProgramPairState(0, 0));
     C.addTransition(state);
     myState = state->get<PairMap>(caller);
+    // myState = &emptyState; // this line fixes the null ptr problem
+    // by forcing the state to have a value however, the state will obviously be
+    // lost return;
   }
   if (Call.isGlobalCFunction("lock")) {
     if (state->get<PairMap>(caller)->Lock != 0)
